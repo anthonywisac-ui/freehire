@@ -205,6 +205,17 @@ func run() int {
 		orderOldestRunFirst(sourceCfg.Sources, lastRun)
 	}
 
+	offset := parseBoardBatchEnv("INGEST_BOARD_OFFSET", os.Getenv("INGEST_BOARD_OFFSET"), 0)
+	limit := parseBoardBatchEnv("INGEST_BOARD_LIMIT", os.Getenv("INGEST_BOARD_LIMIT"), 0)
+	if limit != 0 {
+		total := len(sourceCfg.Sources)
+		sourceCfg.Sources = sliceBoards(sourceCfg.Sources, offset, limit)
+		if offset > total {
+			offset = total
+		}
+		log.Printf("ingest: board slice offset=%d limit=%d selected=%d of total=%d", offset, limit, len(sourceCfg.Sources), total)
+	}
+
 	// crawled records the company slugs each provider actually wrote this run, so the
 	// post-run sweep scopes its closes to them (see the sweep below and crawledSet).
 	crawled := newCrawledSet()
@@ -297,6 +308,38 @@ func run() int {
 	logChronicBoards(sweepCtx, queries)
 
 	return worker.ExitCode(failed, 0)
+}
+
+func parseBoardBatchEnv(name, env string, fallback int) int {
+	if env == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(env)
+	if err != nil || v < 0 {
+		log.Printf("config: %s must be a non-negative integer, got %q; using %d", name, env, fallback)
+		return fallback
+	}
+	return v
+}
+
+func sliceBoards(boards []sources.CompanyEntry, offset, limit int) []sources.CompanyEntry {
+	if limit == 0 {
+		return boards
+	}
+	if len(boards) == 0 {
+		return nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(boards) {
+		return nil
+	}
+	end := offset + limit
+	if end > len(boards) {
+		end = len(boards)
+	}
+	return boards[offset:end]
 }
 
 // sweep runs the post-crawl stale-job closes for every provider in runStats and returns how many
@@ -900,3 +943,4 @@ func sweepRowByRow(ctx context.Context, queries *db.Queries, provider string, cu
 	}
 	return closed, skipped, nil
 }
+
